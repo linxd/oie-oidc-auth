@@ -1,212 +1,212 @@
-# OIE OIDC Authentication
+# OIE OIDC 认证
 
-This extension adds OpenID Connect single sign-on to the OIE web administrator. It runs on the engine. It sends the browser to the identity provider and exchanges the authorization code. It validates the ID token and signs the user in as a named engine user. It can create engine users on first sign-in, and it can assign RBAC roles from provider claims.
+此扩展为 OIE Web 管理器添加 OpenID Connect 单点登录功能。它运行在引擎上，将浏览器重定向到身份提供者并交换授权码。它验证 ID 令牌并将用户以引擎用户名登录。它可以在首次登录时创建引擎用户，并可以从提供者声明中分配 RBAC 角色。
 
-**Documentation:** the [wiki](https://github.com/gibson9583/oie-oidc-auth/wiki) has installation and configuration walkthroughs with screenshots, provider guides for Keycloak, Microsoft Entra ID, Okta, and AWS Cognito, and a troubleshooting page. This README is the reference.
+**文档：**[wiki](https://github.com/gibson9583/oie-oidc-auth/wiki) 包含带截图的安装和配置指南、Keycloak、Microsoft Entra ID、Okta 和 AWS Cognito 的提供者指南以及故障排除页面。本 README 为参考文档。
 
-## Requirements
+## 环境要求
 
-- OIE 4.6.0.
-- OIE web administrator 0.9.0 or newer.
-- A confidential client at an OpenID Connect provider. You need its client ID and client secret.
-- The redirect URI `<web-administrator-url>/oidc/callback`, registered at the provider.
-- Optional: the role-based-access-control (RBAC) extension. Role assignment needs it. Read *Just-in-time users* before you enable user creation without it.
+- OIE 4.6.0。
+- OIE Web 管理器 0.9.0 或更高版本。
+- 一个 OpenID Connect 提供者上的机密客户端，需要其客户端 ID 和客户端密钥。
+- 重定向 URI `<web-administrator-url>/oidc/callback`，需在提供者处注册。
+- 可选：基于角色的访问控制 (RBAC) 扩展。角色分配需要此扩展。在没有 RBAC 的情况下启用用户创建前，请先阅读*即时用户*章节。
 
-To build: Java 17, Maven, and an OIE 4.6.0 installation.
+构建需要：Java 17、Maven 和 OIE 4.6.0 安装。
 
-## Build
+## 构建
 
 ```sh
 OIE_HOME=/path/to/oie mvn clean package
 ```
 
-The build writes `target/oidcauth-1.0.2.zip`. Each release on GitHub also carries this file.
+构建输出 `target/oidcauth-1.0.2.zip`。GitHub 上的每个发布版也附带此文件。
 
-## Install
+## 安装
 
-1. Extract the zip into the engine's extensions directory.
-2. Restart the engine.
-3. Open **Settings → OIDC Authentication** in the web administrator. The tab is present when the extension loaded. If the extension did not load, the engine has no OIDC endpoints, no `manageOIDC` permission, and no settings tab.
+1. 将 zip 解压到引擎的扩展目录。
+2. 重启引擎。
+3. 在 Web 管理器中打开 **设置 → OIDC 认证**。扩展加载后此选项卡会出现。如果扩展未加载，引擎将没有 OIDC 端点、没有 `manageOIDC` 权限、也没有设置选项卡。
 
-The extension writes nothing to the engine log at the default level while it is healthy. It logs a WARN line when the kill switch is set, when the stored policy is rejected, and when JIT provisioning is on without the RBAC extension. To see its state in the log, set the logger `org.openintegrationengine.plugins.oidc` to DEBUG. The engine then writes one line that starts with `OIDC authentication is` at startup and after each save. The line reports one of four states:
+扩展在正常运行时不会向引擎日志写入任何内容。当紧急开关被设置、存储的策略被拒绝、以及 JIT 预配在没有 RBAC 扩展的情况下开启时，它会记录一条 WARN 日志。要在日志中查看其状态，将日志记录器 `org.openintegrationengine.plugins.oidc` 设置为 DEBUG。引擎随后会在启动时和每次保存后写入一行以 `OIDC authentication is` 开头的日志。该行报告四种状态之一：
 
 - `ACTIVE for <discovery-url>`
 - `disabled (policy key 'enabled' is false)`
 - `SWITCHED OFF by OIE_OIDC_DISABLED`
 - `not configured: <reason>`
 
-## Permissions
+## 权限
 
-The extension permission `manageOIDC` protects the settings tab and its API.
+扩展权限 `manageOIDC` 保护设置选项卡及其 API。
 
-With RBAC installed:
+安装 RBAC 后：
 
-- Users on the admin role (`is_admin`) hold `manageOIDC`. They hold every extension permission. Do not add `manageOIDC` to the admin role. The role editor shows that role read-only.
-- Grant `manageOIDC` to each other role that must manage the SSO policy.
+- 管理员角色 (`is_admin`) 上的用户持有 `manageOIDC`。他们持有所有扩展权限。不要将 `manageOIDC` 添加到管理员角色。角色编辑器会以只读方式显示该角色。
+- 将 `manageOIDC` 授予需要管理 SSO 策略的其他角色。
 
-Without RBAC, every signed-in user can open the tab.
+未安装 RBAC 时，每个已登录用户都可以打开此选项卡。
 
-The web module sends `GET /api/extensions/oidcauth/configuration` when it loads. A `403` response hides the tab. Any other response shows the tab. If the tab is missing, check that response. The servlet checks the permission on every operation.
+Web 模块在加载时发送 `GET /api/extensions/oidcauth/configuration`。`403` 响应会隐藏选项卡。任何其他响应都会显示选项卡。如果选项卡缺失，请检查该响应。Servlet 在每次操作时都会检查权限。
 
-The engine's audit log records each save as **Manage OIDC configuration** and each test as **Test OIDC configuration**. Each event records the user and the outcome only. No event contains the policy or the client secret.
+引擎的审计日志将每次保存记录为 **Manage OIDC configuration**，每次测试记录为 **Test OIDC configuration**。每个事件仅记录用户和结果。没有事件包含策略或客户端密钥。
 
-## Configure
+## 配置
 
-1. Register the client at the provider with the redirect URI `<web-administrator-url>/oidc/callback`. The settings tab shows the exact value after you enter the web administrator URL.
-2. In the web administrator, open **Settings → OIDC Authentication**.
-3. Select **Enable OIDC login**. This unlocks the other fields.
-4. Enter the **Discovery URL**, the **Client ID**, the **Client secret**, and the **Web administrator URL**.
-5. Select **Test connection**. This reads the discovery document, fetches the key set, and counts the signing keys that can verify a token. It changes nothing.
-6. Select **Save**.
+1. 在提供者处使用重定向 URI `<web-administrator-url>/oidc/callback` 注册客户端。输入 Web 管理器 URL 后，设置选项卡会显示确切的值。
+2. 在 Web 管理器中，打开 **设置 → OIDC 认证**。
+3. 选择 **启用 OIDC 登录**。这会解锁其他字段。
+4. 输入 **Discovery URL**、**Client ID**、**Client secret** 和 **Web 管理器 URL**。
+5. 选择 **测试连接**。这会读取发现文档、获取密钥集并计算可以验证令牌的签名密钥数量。不会进行任何更改。
+6. 选择 **保存**。
 
-**Save** validates the policy, stores it in the engine database, and applies it to the running extension. No restart is necessary. **Refresh** reads the stored policy again.
+**保存** 会验证策略、将其存储到引擎数据库并应用到运行中的扩展。无需重启。**刷新** 会重新读取存储的策略。
 
-The tab has these properties:
+此选项卡具有以下特性：
 
-- Every field stays locked until **Enable OIDC login** is selected.
-- A field pinned by an operator override is read-only and marked *pinned*. See *Operator overrides*.
-- A banner reports an active kill switch. A banner reports a policy the engine rejected, with the reason.
-- **Default role** and each **Claim-to-role mappings** target offer the engine's RBAC roles. A stored name that RBAC no longer lists stays selected and is marked.
-- **Linked accounts** offer the engine's users. After a sign-in has read the discovery document, the tab fills in the `issuer#` half of a new binding.
-- The claim fields suggest common claim names as you type. They accept any text.
-- Each list falls back to free text when the tab cannot read it.
-- The tab shows a stored client secret as `********`. Saving the mask keeps the stored secret. Type a new value to replace it.
+- 在选择了 **启用 OIDC 登录** 之前，所有字段保持锁定。
+- 被运维覆盖固定的字段为只读并标记为*已固定*。参见*运维覆盖*章节。
+- 横幅会报告活动的紧急开关。横幅也会报告引擎拒绝的策略及原因。
+- **默认角色** 和每个 **声明到角色的映射** 目标提供引擎的 RBAC 角色。已存储但 RBAC 不再列出的名称保持选中状态并被标记。
+- **关联账户** 提供引擎的用户。在读取发现文档后的登录中，选项卡会自动填写新绑定的 `issuer#` 部分。
+- 声明字段在输入时会建议常用的声明名称。它们接受任何文本。
+- 当选项卡无法读取列表时，会回退到自由文本输入。
+- 选项卡将存储的客户端密钥显示为 `********`。保存掩码时保留存储的密钥。输入新值以替换它。
 
-## Policy storage
+## 策略存储
 
-The policy lives in the engine database as the extension's plugin properties. The client secret is encrypted with the engine's key before it is stored, so the raw properties view on the Extensions page and a server-configuration export show ciphertext. A secret stored in the clear, or one that another engine's key cannot decrypt, is refused until it is entered again in the settings tab. An export restored onto an engine with a different keystore therefore needs the secret entered again.
+策略以扩展的插件属性形式存储在引擎数据库中。客户端密钥在存储前使用引擎的密钥加密，因此扩展页面上的原始属性视图和服务器配置导出会显示密文。以明文存储的密钥或由其他引擎密钥无法解密的密钥会被拒绝，直到在设置选项卡中重新输入。因此，恢复到具有不同密钥库的引擎上的导出需要重新输入密钥。
 
-### Operator overrides
+### 运维覆盖
 
-Each policy key can be pinned outside the database:
+每个策略键都可以在数据库外部固定：
 
-- Environment variable: `OIE_OIDC_<KEY>`. Write the key in upper case and replace each dot and hyphen with an underscore. `roles.default` becomes `OIE_OIDC_ROLES_DEFAULT`.
-- System property: `org.openintegrationengine.oidc.<key>`, with the key unchanged. Example: `-Dorg.openintegrationengine.oidc.roles.default=User`.
+- 环境变量：`OIE_OIDC_<KEY>`。将键大写并用下划线替换每个点和连字符。`roles.default` 变为 `OIE_OIDC_ROLES_DEFAULT`。
+- 系统属性：`org.openintegrationengine.oidc.<key>`，键保持不变。示例：`-Dorg.openintegrationengine.oidc.roles.default=User`。
 
-An environment variable wins over a system property. Both win over the stored policy. The tab shows a pinned key read-only and does not include it in a save. Automated installations can set the whole policy this way.
+环境变量优先于系统属性。两者都优先于存储的策略。选项卡以只读方式显示固定的键，且不将其包含在保存中。自动化安装可以通过这种方式设置整个策略。
 
-### Kill switch
+### 紧急开关
 
-`OIE_OIDC_DISABLED=true` (or the system property `org.openintegrationengine.oidc.disabled=true`) switches SSO off. The engine refuses every OIDC sign-in, and the sign-in page stops offering SSO. The stored policy stays unchanged, and the tab reports the switch. This is different from `OIE_OIDC_ENABLED=false`, which pins the policy key `enabled`.
+`OIE_OIDC_DISABLED=true`（或系统属性 `org.openintegrationengine.oidc.disabled=true`）关闭 SSO。引擎拒绝所有 OIDC 登录，登录页面不再提供 SSO。存储的策略保持不变，选项卡报告开关状态。这不同于 `OIE_OIDC_ENABLED=false`，后者固定策略键 `enabled`。
 
-## Sign-in flow
+## 登录流程
 
-The engine exposes three operations that need no session: `GET /api/extensions/oidcauth/public`, `POST /start`, and `POST /callback`. Every engine API request must carry the `X-Requested-With` header, so the provider never contacts the engine directly. The web administrator relays the provider's answer.
+引擎公开三个不需要会话的操作：`GET /api/extensions/oidcauth/public`、`POST /start` 和 `POST /callback`。每个引擎 API 请求必须携带 `X-Requested-With` 头，因此提供者不会直接联系引擎。Web 管理器转发提供者的响应。
 
-1. The sign-in page reads `/public`. The response carries `configured`, `providerLabel`, and `autoRedirect`, and nothing about the provider.
-2. The user selects **Sign in with <label>**. The page posts `/start` with the route to return to. The engine seals the `state`, the `nonce`, the PKCE verifier, and the return route in the HttpOnly cookie `oie-oidc-txn`, which lasts ten minutes. The engine returns the provider's authorization URL, and the browser opens it.
-3. The provider sends the browser to `<web-administrator-url>/oidc/callback` with `code` and `state`.
-4. The page posts `code` and `state` to `/callback`. The engine opens the cookie, checks `state`, and exchanges the code with the client secret and the PKCE verifier. It validates the ID token, including the `nonce`. It returns a one-time ticket that lasts sixty seconds.
-5. The page posts `password=oidc:ticket:<id>` to `/users/_login`. The engine validates the token again, resolves the engine user, and assigns the role. The session, the login audit event, and any second factor are the same as for a password sign-in.
+1. 登录页面读取 `/public`。响应携带 `configured`、`providerLabel` 和 `autoRedirect`，不包含提供者的相关信息。
+2. 用户选择 **使用 <label> 登录**。页面发送 `/start` 及返回路由。引擎将 `state`、`nonce`、PKCE 验证器和返回路由密封在 HttpOnly cookie `oie-oidc-txn` 中，有效期为十分钟。引擎返回提供者的授权 URL，浏览器打开它。
+3. 提供者将浏览器发送到 `<web-administrator-url>/oidc/callback`，携带 `code` 和 `state`。
+4. 页面将 `code` 和 `state` 发送到 `/callback`。引擎打开 cookie，检查 `state`，并使用客户端密钥和 PKCE 验证器交换代码。它验证 ID 令牌（包括 `nonce`）。它返回一个有效期为六十秒的一次性票据。
+5. 页面将 `password=oidc:ticket:<id>` 发送到 `/users/_login`。引擎再次验证令牌，解析引擎用户并分配角色。会话、登录审计事件和任何第二因素与密码登录相同。
 
-Rules that apply to this flow:
+适用于此流程的规则：
 
-- Only a ticket is a sign-in credential. The engine refuses an ID token sent to `/users/_login` directly.
-- The return route must be a path on the web administrator of at most 2048 characters. Any other value returns the user to `/`.
-- The code exchange uses `client_secret_basic`. It uses `client_secret_post` only when the provider's discovery document lists `client_secret_post` and not `client_secret_basic`.
-- The engine limits `/callback` to sixty requests per minute per client and six hundred per minute in total. The client is the first `X-Forwarded-For` address when the header is present, and the peer address otherwise. `/public` and `/start` have no limit.
-- After a refused attempt, the web administrator asks the provider for `prompt=login`, so the provider asks for credentials again.
+- 只有票据是登录凭证。引擎拒绝直接发送到 `/users/_login` 的 ID 令牌。
+- 返回路由必须是 Web 管理器上最多 2048 个字符的路径。任何其他值将用户返回到 `/`。
+- 代码交换使用 `client_secret_basic`。仅当提供者的发现文档列出 `client_secret_post` 而非 `client_secret_basic` 时才使用 `client_secret_post`。
+- 引擎将 `/callback` 限制为每分钟每个客户端六十个请求，总共每分钟六百个请求。客户端是 `X-Forwarded-For` 头中的第一个地址（如果存在），否则为对端地址。`/public` 和 `/start` 没有限制。
+- 在拒绝的尝试后，Web 管理器会向提供者请求 `prompt=login`，使提供者再次要求凭据。
 
-### Token validation
+### 令牌验证
 
-- The discovery URL, the `jwks_uri`, the authorization endpoint, and the token endpoint must use HTTPS. Plain HTTP is accepted for `localhost` only.
-- The engine keeps the discovery document for `jwks-cache-ttl-seconds`.
-- The engine keeps the key set for `jwks-cache-ttl-seconds`. It fetches the key set with a ten-second timeout and a one-megabyte limit. An unknown key ID causes one new fetch at most every thirty seconds.
-- The token algorithm must be in `allowed-algorithms`. The engine never accepts `HS*` or `none`.
-- `iss` must equal the discovery document's issuer. `aud` must contain the client ID. A token with several audiences must carry `azp` equal to the client ID.
-- `exp`, `nbf`, and `iat` are checked against the engine clock with `clock-skew-seconds` of tolerance. `iat` must be at most `max-token-age-seconds` old.
-- The engine remembers each accepted token for `max-token-age-seconds` plus `clock-skew-seconds` and refuses it a second time. This memory lives in the engine process. A restart clears it, and engine nodes do not share it.
+- Discovery URL、`jwks_uri`、授权端点和令牌端点必须使用 HTTPS。仅对 `localhost` 接受纯 HTTP。
+- 引擎将发现文档保留 `jwks-cache-ttl-seconds` 时间。
+- 引擎将密钥集保留 `jwks-cache-ttl-seconds` 时间。它以十秒超时和一兆字节限制获取密钥集。未知的密钥 ID 最多每三十秒触发一次新的获取。
+- 令牌算法必须在 `allowed-algorithms` 中。引擎从不接受 `HS*` 或 `none`。
+- `iss` 必须等于发现文档的发行者。`aud` 必须包含客户端 ID。具有多个受众的令牌必须携带 `azp` 等于客户端 ID。
+- `exp`、`nbf` 和 `iat` 根据引擎时钟检查，容差为 `clock-skew-seconds`。`iat` 最多不能超过 `max-token-age-seconds`。
+- 引擎在 `max-token-age-seconds` 加 `clock-skew-seconds` 的时间内记住每个已接受的令牌，并拒绝第二次使用。此记忆存在于引擎进程中。重启会清除它，引擎节点之间不共享。
 
-## Accounts
+## 账户
 
-- The engine username is the `username-claim` value, normalized (NFKC), lower-cased, and prefixed with `username-prefix`. The result must match `a-z 0-9 . _ @ + : -` and be at most 128 characters.
-- On first sign-in the engine binds the account to `issuer#subject` and stores the binding as the user preference `oidc.subject`.
-- An existing account without a binding is refused, unless `linked-accounts` lists it with the exact `issuer#subject`.
-- A sign-in whose `issuer#subject` differs from the account's binding is refused.
-- When the provider changes a user's username, the bound account takes the new name. When the new name belongs to a different account, the sign-in is refused.
-- When one `issuer#subject` is bound to two accounts, the sign-in is refused until an administrator resolves the duplicate.
-- On each sign-in the engine copies the email, name, and organization claims to the account when they differ. The name claim is split at its last space into first name and last name.
-- An SSO account has no first-login setup step. The engine clears the `firstlogin` preference on each sign-in.
-- An account bound to a provider subject refuses a local password while SSO is active. The message is `This account signs in through SSO.` Accounts in `linked-accounts` keep their local password. When SSO is off (policy disabled, or the kill switch set), local passwords work for every account.
-- A local password that starts with `oidc:` is treated as an SSO credential and is refused.
+- 引擎用户名是 `username-claim` 值，经过规范化 (NFKC)、小写处理并添加 `username-prefix` 前缀。结果必须匹配 `a-z 0-9 . _ @ + : -`，最多 128 个字符。
+- 首次登录时，引擎将账户绑定到 `issuer#subject` 并将绑定存储为用户偏好 `oidc.subject`。
+- 没有绑定的现有账户会被拒绝，除非 `linked-accounts` 列出了完全匹配的 `issuer#subject`。
+- `issuer#subject` 与账户绑定不同的登录会被拒绝。
+- 当提供者更改用户的用户名时，绑定的账户会采用新名称。当新名称属于不同的账户时，登录会被拒绝。
+- 当一个 `issuer#subject` 绑定到两个账户时，登录会被拒绝，直到管理员解决重复问题。
+- 每次登录时，引擎将电子邮件、姓名和组织声明复制到账户（如果不同）。姓名声明在最后一个空格处拆分为名字和姓氏。
+- SSO 账户没有首次登录设置步骤。引擎在每次登录时清除 `firstlogin` 偏好。
+- 绑定到提供者主题的账户在 SSO 活动期间拒绝本地密码。消息为 `This account signs in through SSO.`。`linked-accounts` 中的账户保留其本地密码。当 SSO 关闭时（策略禁用或紧急开关设置），所有账户都可以使用本地密码。
+- 以 `oidc:` 开头的本地密码被视为 SSO 凭据并被拒绝。
 
-### Just-in-time users
+### 即时用户
 
-`jit.enabled=true` creates an engine user on first sign-in. The account gets the email, name, and organization from the claims, the `issuer#subject` binding, and no engine password.
+`jit.enabled=true` 在首次登录时创建引擎用户。账户从声明中获取电子邮件、姓名和组织、`issuer#subject` 绑定，且没有引擎密码。
 
-> **Without RBAC, every engine user holds full administrative access.** The engine has no permission model of its own. With `jit.enabled=true` and no RBAC extension, each person the provider issues a token for becomes a full administrator on first sign-in. The extension does not refuse this configuration. Install RBAC first, or restrict at the provider which users can receive a token for this client. With RBAC installed, `roles.default` is required and bounds what a new user can do.
+> **未安装 RBAC 时，每个引擎用户都拥有完全管理员访问权限。** 引擎没有自己的权限模型。当 `jit.enabled=true` 且没有 RBAC 扩展时，提供者为其颁发令牌的每个人在首次登录时都会成为完全管理员。扩展不会拒绝此配置。请先安装 RBAC，或在提供者处限制哪些用户可以接收此客户端的令牌。安装 RBAC 后，`roles.default` 为必需项，并限制新用户可以执行的操作。
 
-## Roles
+## 角色
 
-Role assignment needs the RBAC extension. The engine assigns one role per user.
+角色分配需要 RBAC 扩展。引擎为每个用户分配一个角色。
 
-`roles.claim` names the claim that carries the role values. A dotted path, such as `realm_access.roles`, descends into nested claims. The engine tries the exact top-level name first. A list claim gives one value per element. A text claim is split on commas, or on whitespace when it has no comma.
+`roles.claim` 命名携带角色值的声明。点分路径（如 `realm_access.roles`）可以进入嵌套声明。引擎首先尝试精确的顶级名称。列表声明每个元素给出一个值。文本声明在逗号处拆分，或在没有逗号时在空白处拆分。
 
-The engine resolves the role in this order:
+引擎按以下顺序解析角色：
 
-1. The first `roles.map` entry whose key equals a claim value, in claim order.
-2. With `roles.infer=true`, the first claim value that equals the name of an existing RBAC role.
-3. `roles.default`.
+1. `roles.map` 中第一个键等于声明值的条目，按声明顺序。
+2. 当 `roles.infer=true` 时，第一个等于现有 RBAC 角色名称的声明值。
+3. `roles.default`。
 
-Keep `roles.infer=false` unless the claim is curated. Any matching value, including `Administrator`, grants that role.
+除非声明经过审查，否则保持 `roles.infer=false`。任何匹配的值（包括 `Administrator`）都会授予该角色。
 
-`roles.sync` controls when the engine assigns the role: `always` on every sign-in, `jit-only` when the account is created, `never` not at all.
+`roles.sync` 控制引擎何时分配角色：`always` 在每次登录时、`jit-only` 在创建账户时、`never` 不分配。
 
-`roles.default` is required when the policy is enabled, RBAC is installed, and `roles.sync` is not `never`. The check is that the key has a value, not that the role exists. When the resolved role does not exist, the engine logs `OIDC role '…' does not exist; leaving role unchanged` and keeps the current role.
+当策略启用、安装了 RBAC 且 `roles.sync` 不是 `never` 时，`roles.default` 为必需项。检查的是该键有值，而不是角色存在。当解析的角色不存在时，引擎记录 `OIDC role '…' does not exist; leaving role unchanged` 并保持当前角色。
 
-The engine never demotes the last administrator. A failure in RBAC never blocks a sign-in.
+引擎从不降级最后一个管理员。RBAC 中的失败从不阻止登录。
 
-The engine logs each role decision at DEBUG. Set the logger `org.openintegrationengine.plugins.oidc` to DEBUG in the engine's log4j2 configuration to see which claim was read and which values it carried.
+引擎在 DEBUG 级别记录每个角色决策。在引擎的 log4j2 配置中将日志记录器 `org.openintegrationengine.plugins.oidc` 设置为 DEBUG，以查看读取了哪个声明及其携带的值。
 
-### The roles claim must be in the ID token
+### 角色声明必须在 ID 令牌中
 
-The engine reads roles from the ID token. Most providers put roles in the access token only, unless configured otherwise. With that configuration every user gets the default role.
+引擎从 ID 令牌读取角色。大多数提供者默认将角色放在访问令牌中，除非另行配置。使用该配置时，每个用户都会获得默认角色。
 
-- **Keycloak:** the `roles` client scope writes `realm_access.roles` and `resource_access.<client-id>.roles` to the access token only. Either enable **Add to ID token** on those mappers, or add a mapper on the client. Use *User Client Role* or *User Realm Role* for roles. Use *Group Membership* with **Full group path** off for groups. Set the token claim name to `groups`, select **Multivalued**, and enable **Add to ID token**. Keep `roles.claim` at `groups`. Use one mapper per claim name.
-- **Microsoft Entra ID:** under *Token configuration*, add `groups` (object IDs, one `roles.map` entry per ID) or app `roles` to the ID token.
-- **Okta:** add a `groups` claim to the ID token in the authorization server.
-- **AWS Cognito:** the ID token carries `cognito:groups`. Set `roles.claim` to `cognito:groups`.
+- **Keycloak：**`roles` 客户端作用域将 `realm_access.roles` 和 `resource_access.<client-id>.roles` 写入访问令牌。在这些映射器上启用 **Add to ID token**，或在客户端上添加映射器。使用 *User Client Role* 或 *User Realm Role* 处理角色。使用 *Group Membership* 并关闭 **Full group path** 处理组。将令牌声明名称设置为 `groups`，选择 **Multivalued**，并启用 **Add to ID token**。保持 `roles.claim` 为 `groups`。每个声明名称使用一个映射器。
+- **Microsoft Entra ID：** 在 *Token configuration* 下，将 `groups`（对象 ID，每个 ID 一个 `roles.map` 条目）或应用 `roles` 添加到 ID 令牌。
+- **Okta：** 在授权服务器中将 `groups` 声明添加到 ID 令牌。
+- **AWS Cognito：** ID 令牌携带 `cognito:groups`。将 `roles.claim` 设置为 `cognito:groups`。
 
-### A rejected policy
+### 被拒绝的策略
 
-When the stored policy fails validation, the engine starts and the policy is not in force. `/public` reports `configured:false`. The sign-in page offers no SSO. A sign-in attempt gets `SSO is disabled on this engine.` The tab shows the stored values and a banner with the reason. The log has `OIDC authentication is not configured: <reason>`. Correct the policy in the tab with a local administrator account. When no local administrator exists, set the value with an operator override, for example `OIE_OIDC_ROLES_DEFAULT=<role>`.
+当存储的策略验证失败时，引擎启动但策略未生效。`/public` 报告 `configured:false`。登录页面不提供 SSO。登录尝试会收到 `SSO is disabled on this engine.`。选项卡显示存储的值和带有原因的横幅。日志中有 `OIDC authentication is not configured: <reason>`。使用本地管理员账户在选项卡中更正策略。当没有本地管理员时，使用运维覆盖设置值，例如 `OIE_OIDC_ROLES_DEFAULT=<role>`。
 
-## Policy keys
+## 策略键
 
-Every key lives in the engine database and is edited under **Settings → OIDC Authentication**. Every key can be pinned by an operator override.
+每个键都存在于引擎数据库中，并在 **设置 → OIDC 认证** 下编辑。每个键都可以通过运维覆盖固定。
 
-| Key | Default | Meaning |
+| 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| `enabled` | `false` | Master switch for the policy. |
-| `discovery-url` | *(empty)* | The provider's `.well-known/openid-configuration`. Required when enabled. HTTPS, or HTTP for `localhost`. |
-| `client-id` | *(empty)* | The client the engine expects tokens for. Checked against `aud`. Required when enabled. |
-| `client-secret` | *(empty)* | The confidential client's secret, used in the code exchange. Shown masked once stored. Required when enabled. |
-| `web-administrator-url` | *(empty)* | The address browsers open the web administrator at, for example `https://oie-admin.example` or `https://engine.example:8443/oie-webadmin`. A base URL with no query, fragment, or credentials. HTTPS, or HTTP for `localhost`. The redirect URI is `<this>/oidc/callback`. Required when enabled. |
-| `provider-label` | `SSO` | The sign-in button reads "Sign in with `<label>`". |
-| `auto-redirect` | `false` | Send visitors to the provider at once instead of showing the button. Local sign-in stays available. |
-| `scopes` | `openid profile email` | Scopes requested from the provider, separated by spaces or commas. `openid` is always included. |
-| `username-claim` | `preferred_username` | The claim that becomes the engine username. |
-| `username-prefix` | *(empty)* | Text put in front of the normalized username. Must match `a-z 0-9 . _ @ + : -`. |
-| `allowed-algorithms` | `RS256,RS384,RS512,ES256,ES384,ES512` | Accepted signature algorithms. `HS*` is never accepted. |
-| `clock-skew-seconds` | `60` | Tolerance for `exp`, `nbf`, and `iat` against the engine clock. |
-| `max-token-age-seconds` | `300` | Oldest accepted `iat`. With the skew, the time an accepted token is remembered. |
-| `jwks-cache-ttl-seconds` | `300` | How long the discovery document and the key set are reused. |
-| `jit.enabled` | `false` | Create an engine user on first sign-in. Read *Just-in-time users* first. |
-| `jit.email-claim` | `email` | Claim copied to the user's email. |
-| `jit.name-claim` | `name` | Claim split into first name and last name. |
-| `jit.organization-claim` | `organization` | Claim copied to the user's organization. |
-| `linked-accounts` | *(empty)* | `engine-user=issuer#subject` entries, separated by commas. The only way an existing account can sign in through SSO. |
-| `roles.claim` | `groups` | The claim that carries role values. A dotted path descends into nested claims. |
-| `roles.map` | *(empty)* | `claim-value=RBAC role` entries, separated by commas. First match in claim order wins. |
-| `roles.default` | *(empty)* | The role for a user whose claims match nothing. Required when enabled with RBAC installed, unless `roles.sync=never`. |
-| `roles.sync` | `always` | `always`, `jit-only`, or `never`. See *Roles*. |
-| `roles.infer` | `false` | Also accept a claim value that equals an existing RBAC role name. |
+| `enabled` | `false` | 策略的主开关。 |
+| `discovery-url` | *(空)* | 提供者的 `.well-known/openid-configuration`。启用时必需。HTTPS，或 `localhost` 的 HTTP。 |
+| `client-id` | *(空)* | 引擎期望接收令牌的客户端。针对 `aud` 检查。启用时必需。 |
+| `client-secret` | *(空)* | 机密客户端的密钥，用于代码交换。存储后显示为掩码。启用时必需。 |
+| `web-administrator-url` | *(空)* | 浏览器打开 Web 管理器的地址，例如 `https://oie-admin.example` 或 `https://engine.example:8443/oie-webadmin`。不含查询、片段或凭据的基本 URL。HTTPS，或 `localhost` 的 HTTP。重定向 URI 为 `<this>/oidc/callback`。启用时必需。 |
+| `provider-label` | `SSO` | 登录按钮显示为“使用 `<label>` 登录”。 |
+| `auto-redirect` | `false` | 立即将访客发送到提供者而不是显示按钮。本地登录仍然可用。 |
+| `scopes` | `openid profile email` | 从提供者请求的作用域，以空格或逗号分隔。始终包含 `openid`。 |
+| `username-claim` | `preferred_username` | 成为引擎用户名的声明。 |
+| `username-prefix` | *(空)* | 放在规范化用户名前面的文本。必须匹配 `a-z 0-9 . _ @ + : -`。 |
+| `allowed-algorithms` | `RS256,RS384,RS512,ES256,ES384,ES512` | 接受的签名算法。从不接受 `HS*`。 |
+| `clock-skew-seconds` | `60` | `exp`、`nbf` 和 `iat` 相对于引擎时钟的容差。 |
+| `max-token-age-seconds` | `300` | 最旧可接受的 `iat`。加上时钟偏差后，为已接受令牌的记忆时间。 |
+| `jwks-cache-ttl-seconds` | `300` | 发现文档和密钥集的重用时间。 |
+| `jit.enabled` | `false` | 在首次登录时创建引擎用户。请先阅读*即时用户*章节。 |
+| `jit.email-claim` | `email` | 复制到用户电子邮件的声明。 |
+| `jit.name-claim` | `name` | 拆分为名字和姓氏的声明。 |
+| `jit.organization-claim` | `organization` | 复制到用户组织的声明。 |
+| `linked-accounts` | *(空)* | `engine-user=issuer#subject` 条目，以逗号分隔。现有账户通过 SSO 登录的唯一方式。 |
+| `roles.claim` | `groups` | 携带角色值的声明。点分路径进入嵌套声明。 |
+| `roles.map` | *(空)* | `claim-value=RBAC 角色` 条目，以逗号分隔。声明顺序中的第一个匹配获胜。 |
+| `roles.default` | *(空)* | 声明不匹配任何内容的用户的角色。启用并安装 RBAC 时必需，除非 `roles.sync=never`。 |
+| `roles.sync` | `always` | `always`、`jit-only` 或 `never`。参见*角色*章节。 |
+| `roles.infer` | `false` | 同时接受等于现有 RBAC 角色名称的声明值。 |
 
-## Limitations
+## 限制
 
-- RP-initiated logout and front-channel logout are not implemented. A sign-out from the engine does not end the provider session. Set the engine's `server.api.sessionmaxinactiveinterval` in line with the provider's session policy.
-- Confidential clients only. The engine holds the client secret. Public clients with PKCE only are not supported.
-- One identity provider per engine. The engine loads one authorization plugin.
-- One role per user. `roles.map` gives the first match, not a union.
-- Replay memory is per engine process. See *Token validation*.
-- Removal of a user at the provider blocks the next sign-in. It does not disable or delete the engine account. Delete the engine user as well.
+- 未实现 RP 发起的登出和前端通道登出。从引擎登出不会结束提供者会话。根据提供者的会话策略设置引擎的 `server.api.sessionmaxinactiveinterval`。
+- 仅限机密客户端。引擎持有客户端密钥。不支持仅使用 PKCE 的公共客户端。
+- 每个引擎一个身份提供者。引擎加载一个授权插件。
+- 每个用户一个角色。`roles.map` 给出第一个匹配，而非并集。
+- 重放记忆按引擎进程管理。参见*令牌验证*章节。
+- 在提供者处删除用户会阻止下次登录。它不会禁用或删除引擎账户。请同时删除引擎用户。

@@ -1,1 +1,13 @@
-{"id":"oidcauth","name":"OIDC Authentication","version":"1.0.2","author":"Christopher Gibson","description":"Permission-gated OIDC authentication policy settings.","oie":{"apiMin":"4.6"},"client":{"entry":"web/plugin.js"}}
+{
+    "id": "oidcauth",
+    "name": "OIDC 认证",
+    "version": "1.0.2",
+    "author": "Christopher Gibson",
+    "description": "权限控制的 OIDC 认证策略设置。",
+    "oie": {
+        "apiMin": "4.6"
+    },
+    "client": {
+        "entry": "web/plugin.js"
+    }
+}
